@@ -1,0 +1,179 @@
+rm(list = ls())
+graphics.off()
+
+library(geosphere)
+library(magrittr)
+library(dplyr)
+library(tidyverse)
+library(shiny)
+library(shinydashboard)
+library(DT)
+library(leaflet)
+
+#############################################################################
+
+city <- data.frame(name = c("臺北"  , "桃園"  , "新竹"  , "苗栗"  , "臺中"  , "南投"  , "彰化"  , "雲林"  , "嘉義"  , "臺南"  , "高雄"  , "屏東"  , "宜蘭"  , "花蓮"  , "臺東"),
+                   long = c(121.5176, 121.3144, 120.9716, 120.8224, 120.6853, 120.6875, 120.5383, 120.5406, 120.4411, 120.2176, 120.3025, 120.4860, 121.7583, 121.6012, 121.1233), 
+                   lati = c(25.0486 , 24.9889 , 24.8016 , 24.5699 , 24.1355 , 23.9052 , 24.0815 , 23.7072 , 23.4790 , 22.9981 , 22.6394 , 22.6688 , 24.7552 , 23.9932 , 22.7936))
+city
+
+dist_moun = read.csv("C:/Users/user/Desktop/mouncitydist.csv")  # 40749r, 24c
+head(dist_moun)
+shiny_moun = dist_moun[-2]
+names(shiny_moun) <- c("id", "經度", "緯度", "平均海拔", "平均速度", "爬山時長(小時)", "是否過夜", "等級", "臺北"  , "桃園"  , "新竹"  , "苗栗"  , "臺中"  , "南投"  , "彰化"  , "雲林"  , "嘉義"  , "臺南"  , "高雄"  , "屏東"  , "宜蘭"  , "花蓮"  , "臺東")
+head(shiny_moun)  # 40749r 23c
+
+# 編碼
+shiny_moun$等級 = shiny_moun$等級 - 1
+shiny_moun$等級 = as.numeric(shiny_moun$等級)
+shiny_moun
+
+# 0-3 > 4-7
+shiny_moun[which(shiny_moun$等級 == 0), ]$等級 = 6  # 登山入門2.1
+shiny_moun[which(shiny_moun$等級 == 1), ]$等級 = 4  # 休閒
+shiny_moun[which(shiny_moun$等級 == 2), ]$等級 = 5  # 快走2.2
+shiny_moun[which(shiny_moun$等級 == 3), ]$等級 = 7  # 最難
+shiny_moun
+
+# 
+shiny_moun[which(shiny_moun$等級 == 4), ]$等級 = 8    # 休閒
+shiny_moun[which(shiny_moun$等級 == 5), ]$等級 = 9.2  # 快走2.2
+shiny_moun[which(shiny_moun$等級 == 6), ]$等級 = 9.1  # 登山入門2.1
+shiny_moun[which(shiny_moun$等級 == 7), ]$等級 = 10   # 最難
+shiny_moun$等級 = shiny_moun$等級 - 7
+shiny_moun$等級 = as.numeric(shiny_moun$等級)
+shiny_moun
+
+shiny_moun$`爬山時長(小時)` <- round((shiny_moun$`爬山時長(小時)`/3600), 2)
+
+shiny_moun[which(shiny_moun$是否過夜 == 0), ]$是否過夜 = "否"
+shiny_moun[which(shiny_moun$是否過夜 == 1), ]$是否過夜 = "是"
+head(shiny_moun)
+
+#############################################################################
+
+ui <- dashboardPage(
+  skin = "black",
+  
+  dashboardHeader(title = "山那路線推薦",
+                  
+                  dropdownMenu(type = "tasks", badgeStatus = "success",
+                               taskItem(value = 10, color = "olive",
+                                        "目前爬山等級"),
+                               taskItem(value = 60, color = "yellow",
+                                        "行程規劃進度"),
+                               taskItem(value = 2, color = "red",
+                                        "百岳攻頂紀錄")),
+                  
+                  dropdownMenu(type = "notifications",
+                               notificationItem(text = "個人資料已更新",
+                                                icon = icon("edit")),
+                               notificationItem(text = "48個新好友",
+                                                icon = icon("user-friends")),
+                               notificationItem(text = "已完成一項任務",
+                                                icon = icon("tasks"))),
+                  
+                  dropdownMenu(type = "messages",
+                               messageItem(from = "新用戶",
+                                           message = "你好嗎？考完期末考了嗎？",
+                                           icon = icon("hand-sparkles"),
+                                           time = "2021-06-26"),
+                               messageItem(from = "幫助",
+                                           message = "還沒得到山神的力量嗎？點擊了解詳情",
+                                           icon = icon("bible"),
+                                           time = "2021-06-26"))
+  ),
+  
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("出發！", tabName = "id1",
+               icon = icon("dashboard")),
+      menuItem("推薦路線", tabName = "id2",
+               icon = icon("thumbs-up")),
+      menuItem("路線地圖", tabName = "id3",
+               icon = icon("mountain"))
+    )
+  ),
+  
+  dashboardBody(
+    tabItems(
+      
+      tabItem(tabName = "id1",
+              
+              fluidPage(
+                column(box(selectInput(inputId = "地區", label = "所在地區", choices = c("臺北" = "臺北",
+                                                                                   "桃園" = "桃園",
+                                                                                   "新竹" = "新竹",
+                                                                                   "苗栗" = "苗栗",
+                                                                                   "臺中" = "臺中",
+                                                                                   "南投" = "南投",
+                                                                                   "彰化" = "彰化",
+                                                                                   "雲林" = "雲林",
+                                                                                   "嘉義" = "嘉義",
+                                                                                   "臺南" = "臺南",
+                                                                                   "高雄" = "高雄",
+                                                                                   "屏東" = "屏東",
+                                                                                   "宜蘭" = "宜蘭",
+                                                                                   "花蓮" = "花蓮",
+                                                                                   "臺東" = "臺東")), height = 340),
+                       box(sliderInput(inputId = "時長", label = "預計爬山時長 (小時)", min = 1, max = 20, value = c(2, 5)),
+                           sliderInput(inputId = "海拔", label = "可負荷之海拔高度範圍 (公尺)", min = 120, max = 5000, value = c(1000, 3000))),
+                       
+                       box(selectInput(inputId = "等級", label = "個人等級", choices = c("休閒健行(等級1)" = 1, "登山入門(等級2-1)" = 2.1,
+                                                                                   "步道快走(等級2-2)" = 2.2, "爬山專家(等級3)" = 3))),
+                       width = 8)
+              )
+      ),
+      
+      tabItem(tabName = "id2", 
+              column(box(numericInput("n", label = "推薦筆數", value = 10)), width = 5),
+              fluidRow(column(width = 12,
+                              DT::dataTableOutput("recommend"), style = "height:5000px; overflow-y: scroll;overflow-x: scroll;"))
+      ),
+      
+      tabItem(tabName = "id3", 
+              fluidPage(leafletOutput("map"))
+      )
+      
+    )
+  )
+  
+)
+
+server <- function(input, output){
+  
+  output$recommend <- DT::renderDataTable({
+    showtable <- data.frame(shiny_moun[which(shiny_moun$平均海拔 >= input$海拔[1] & shiny_moun$平均海拔 <= input$海拔[2] &
+                                               (shiny_moun$`爬山時長(小時)`) >= input$時長[1] & (shiny_moun$`爬山時長(小時)`) <= input$時長[2] &
+                                               shiny_moun[input$地區] <= 25000 &
+                                               shiny_moun$等級 >= floor(as.numeric(input$等級))), ])
+    
+    if(input$等級 == 2.2){
+      newo = factor(showtable$等級, levels = c(1, 2.2, 2.1, 3))
+      head(showtable[order(newo), 2:8], input$n)
+    }else{
+      head(showtable[order(showtable$等級), 2:8], input$n)
+    }
+    
+  })
+  
+  
+  output$map <- renderLeaflet({
+    showtable <- data.frame(shiny_moun[which(shiny_moun$平均海拔 >= input$海拔[1] & shiny_moun$平均海拔 <= input$海拔[2] &
+                                               (shiny_moun$`爬山時長(小時)`) >= input$時長[1] & (shiny_moun$`爬山時長(小時)`) <= input$時長[2] &
+                                               shiny_moun[input$地區] <= 25000 &
+                                               shiny_moun$等級 >= floor(as.numeric(input$等級))), ])
+    
+    leaflet() %>% 
+      addTiles() %>%
+      addMarkers(lng = showtable$經度[1:input$n], lat = showtable$緯度[1:input$n]) %>%
+      setView(lng = city[which(city$name == input$地區), 2], lat = city[which(city$name == input$地區), 3], zoom = 11)
+    
+  })
+  
+}
+
+shinyApp(ui = ui, server = server)
+
+
+
